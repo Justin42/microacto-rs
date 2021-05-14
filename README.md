@@ -31,7 +31,7 @@ Don't add this to your `Cargo.toml`:
 git = "https://github.com/Justin42/microacto-rs"
 branch = "master"
 ```
-Commits may frequenly break your interface. There is no stable branch. You can pin a revision using the commit hash.  
+Commits may frequently break your interface. There is no stable branch. You can pin a revision using the commit hash.  
 Pinning a revision is *required* if you want to make any guarantees of stability to consumers of your interface.
 
 ```toml
