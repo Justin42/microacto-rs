@@ -238,18 +238,36 @@ pub trait ActorTask<A: Actor + Send + 'static>: Send + Sync + 'static {
     async fn execute(&mut self, actor: &A);
 }
 
+#[async_trait]
 pub trait Actor: Send + Sized + Sync + 'static {
     fn start<A: Actor>(actor: A) -> Addr<A> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Envelope<A>>();
         let addr = Addr::from(tx);
+        let ctx = ActorContext::build(&addr);
         tokio::task::spawn(async move {
             let actor = actor;
-            while let Some(mut msg) = rx.recv().await {
-                msg.inner.execute(&actor).await
+            // TODO Sending a message to the ctx in on_start implementation will probably cause a deadlock.
+            match actor.on_start(ctx).await.err() {
+                None => {
+                    while let Some(mut msg) = rx.recv().await {
+                        msg.inner.execute(&actor).await
+                    }
+                    info!("Actor shutting down. All senders dropped.");
+                }
+                Some(e) => {
+                    error!("Error during actor start: {:?}", e);
+                }
             }
-            info!("Actor shutting down. All senders dropped.");
         });
         addr
+    }
+
+    async fn on_start(&self, _ctx: ActorContext<Self>) -> Result<(), ActorError> {
+        // TODO Don't do this. Message handling has not been started.
+        // Spawn a new task or something instead (it wont complete until after handling starts)
+        //ctx.addr.upgrade().unwrap().send(SomeMessage).await??;
+
+        Ok(())
     }
 }
 
