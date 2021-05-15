@@ -8,4 +8,4 @@ edition = "2018"
 [dependencies]
 async-trait = "0.1"
 log = "0.4"
-tokio = { version = "1.5", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync"] }
