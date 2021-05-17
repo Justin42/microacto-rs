@@ -229,12 +229,22 @@ where
             Ok(_) => match rx.await {
                 Ok(v) => Ok(v),
                 Err(e) => {
-                    error!("Unable to receive actor task result: {:?}", e.to_string());
+                    error!(
+                        "Unable to receive actor task result from {} - {}: {:?}",
+                        std::any::type_name::<A>(),
+                        std::any::type_name::<M>(),
+                        e.to_string()
+                    );
                     Err(ActorError::RecvError)
                 }
             },
             Err(e) => {
-                error!("Unable to send actor task: {:?}", e.to_string());
+                error!(
+                    "Unable to send actor task to {} - {}: {:?}",
+                    std::any::type_name::<A>(),
+                    std::any::type_name::<M>(),
+                    e.to_string()
+                );
                 Err(ActorError::SendError)
             }
         }
