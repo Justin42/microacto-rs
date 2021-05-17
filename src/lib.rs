@@ -53,9 +53,27 @@ pub struct ActorErrorMessage {
     inner: String,
 }
 
+impl ActorErrorMessage {
+    pub fn new(inner: String) -> Self {
+        Self { inner }
+    }
+}
+
 impl std::convert::From<ActorErrorMessage> for ActorError {
     fn from(e: ActorErrorMessage) -> Self {
         Self::Other(Arc::new(e))
+    }
+}
+
+impl std::convert::From<&str> for ActorError {
+    fn from(msg: &str) -> Self {
+        msg.to_string().into()
+    }
+}
+
+impl std::convert::From<String> for ActorError {
+    fn from(msg: String) -> Self {
+        ActorErrorMessage::new(msg).into()
     }
 }
 
