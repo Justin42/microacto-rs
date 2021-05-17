@@ -3,6 +3,7 @@ use log::{error, info, trace, warn};
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Weak};
+use tokio::sync::Notify;
 
 pub trait Context: Send + Sync {}
 
@@ -84,6 +85,7 @@ pub struct Envelope<A> {
 #[derive(Debug)]
 pub struct Addr<A: Actor + 'static> {
     tx: Arc<tokio::sync::mpsc::UnboundedSender<Envelope<A>>>,
+    completed: Arc<Notify>,
 }
 
 impl<A> Clone for Addr<A>
@@ -93,6 +95,7 @@ where
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
+            completed: self.completed.clone(),
         }
     }
 }
@@ -104,7 +107,18 @@ where
     pub fn downgrade(&self) -> WeakAddr<A> {
         WeakAddr {
             tx: Arc::downgrade(&self.tx),
+            stopped: Arc::downgrade(&self.completed),
         }
+    }
+
+    pub async fn complete(&self) {
+        self.completed.notified().await
+    }
+
+    fn notify_completed(&self) {
+        self.completed.notify_waiters();
+        // Store extra permit for any consumer that is not already waiting.
+        self.completed.notify_one();
     }
 }
 
@@ -113,6 +127,7 @@ where
     A: Actor,
 {
     tx: Weak<tokio::sync::mpsc::UnboundedSender<Envelope<A>>>,
+    stopped: Weak<Notify>,
 }
 
 impl<A> WeakAddr<A>
@@ -120,7 +135,10 @@ where
     A: Actor,
 {
     pub fn upgrade(self) -> Option<Addr<A>> {
-        self.tx.upgrade().map(|tx| Addr { tx })
+        Some(Addr {
+            tx: self.tx.upgrade()?,
+            completed: self.stopped.upgrade()?,
+        })
     }
 }
 
@@ -131,6 +149,7 @@ where
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
+            stopped: self.stopped.clone(),
         }
     }
 }
@@ -140,7 +159,10 @@ where
     A: Actor + 'static,
 {
     fn from(tx: tokio::sync::mpsc::UnboundedSender<Envelope<A>>) -> Self {
-        Self { tx: Arc::new(tx) }
+        Self {
+            tx: Arc::new(tx),
+            completed: Arc::new(Notify::new()),
+        }
     }
 }
 
@@ -262,28 +284,33 @@ pub trait Actor: Send + Sized + Sync + 'static {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Envelope<A>>();
         let addr = Addr::from(tx);
         let ctx = ActorContext::build(&addr);
-        tokio::task::spawn(async move {
-            let actor = actor;
-            // TODO Sending a message to the ctx in on_start implementation will probably cause a deadlock.
-            match actor.on_start(ctx).await.err() {
-                None => {
-                    while let Some(mut msg) = rx.recv().await {
-                        msg.inner.execute(&actor).await
+
+        {
+            let addr = addr.clone();
+            tokio::task::spawn(async move {
+                let actor = actor;
+                // TODO Sending a message to the ctx in on_start implementation will probably cause a deadlock.
+                match actor.on_start(ctx).await.err() {
+                    None => {
+                        while let Some(mut msg) = rx.recv().await {
+                            msg.inner.execute(&actor).await
+                        }
+                        info!(
+                            "Actor '{}' shutting down. All senders dropped.",
+                            std::any::type_name::<A>()
+                        );
                     }
-                    info!(
-                        "Actor '{}' shutting down. All senders dropped.",
-                        std::any::type_name::<A>()
-                    );
+                    Some(e) => {
+                        error!(
+                            "Error starting actor {}: {:?}",
+                            std::any::type_name::<A>(),
+                            e
+                        );
+                    }
                 }
-                Some(e) => {
-                    error!(
-                        "Error starting actor {}: {:?}",
-                        std::any::type_name::<A>(),
-                        e
-                    );
-                }
-            }
-        });
+                addr.notify_completed();
+            });
+        }
         addr
     }
 
