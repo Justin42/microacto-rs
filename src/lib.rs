@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use log::{error, info, trace, warn};
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Weak};
 
@@ -48,7 +49,7 @@ pub enum ActorError {
 
 #[derive(Debug)]
 pub struct ActorErrorMessage {
-    inner: Box<dyn std::error::Error + Send + Sync>,
+    inner: String,
 }
 
 impl std::convert::From<ActorErrorMessage> for ActorError {
@@ -57,15 +58,22 @@ impl std::convert::From<ActorErrorMessage> for ActorError {
     }
 }
 
-impl<E: 'static> std::convert::From<E> for ActorError
+impl<E: 'static> std::convert::From<E> for ActorErrorMessage
 where
-    E: std::error::Error + Send + Sync,
+    E: std::error::Error,
 {
     fn from(err: E) -> Self {
-        ActorErrorMessage {
-            inner: Box::new(err),
+        Self {
+            inner: err.to_string(),
         }
-        .into()
+    }
+}
+
+impl std::error::Error for ActorError {}
+
+impl Display for ActorError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
     }
 }
 
