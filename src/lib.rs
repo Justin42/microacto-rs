@@ -270,10 +270,17 @@ pub trait Actor: Send + Sized + Sync + 'static {
                     while let Some(mut msg) = rx.recv().await {
                         msg.inner.execute(&actor).await
                     }
-                    info!("Actor shutting down. All senders dropped.");
+                    info!(
+                        "Actor '{}' shutting down. All senders dropped.",
+                        std::any::type_name::<A>()
+                    );
                 }
                 Some(e) => {
-                    error!("Error during actor start: {:?}", e);
+                    error!(
+                        "Error starting actor {}: {:?}",
+                        std::any::type_name::<A>(),
+                        e
+                    );
                 }
             }
         });
