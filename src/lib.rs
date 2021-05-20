@@ -31,7 +31,7 @@ where
 {
     pub fn build(addr: &Addr<T>) -> Self {
         Self {
-            addr: addr.downgrade(),
+            addr: addr.clone().downgrade(),
         }
     }
 
@@ -122,7 +122,7 @@ impl<A> Addr<A>
 where
     A: Actor,
 {
-    pub fn downgrade(&self) -> WeakAddr<A> {
+    pub fn downgrade(self) -> WeakAddr<A> {
         WeakAddr {
             tx: Arc::downgrade(&self.tx),
             stopped: Arc::downgrade(&self.completed),
