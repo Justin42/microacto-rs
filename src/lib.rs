@@ -129,8 +129,12 @@ where
         }
     }
 
-    pub async fn complete(&self) {
-        self.completed.notified().await
+    pub async fn complete(self) {
+        let weak = self.downgrade();
+        match weak.stopped.upgrade() {
+            None => {}
+            Some(notify) => notify.notified().await,
+        }
     }
 
     fn notify_completed(&self) {
@@ -152,7 +156,7 @@ impl<A> WeakAddr<A>
 where
     A: Actor,
 {
-    pub fn upgrade(self) -> Option<Addr<A>> {
+    pub fn upgrade(&self) -> Option<Addr<A>> {
         Some(Addr {
             tx: self.tx.upgrade()?,
             completed: self.stopped.upgrade()?,
