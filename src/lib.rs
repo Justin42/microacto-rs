@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Weak};
 use tokio::sync::Notify;
+use tokio::time::Duration;
 
 pub trait Context: Send + Sync {}
 
@@ -258,6 +259,8 @@ where
     M: Message + 'static,
 {
     async fn send(&self, msg: M) -> Result<M::Result, ActorError>;
+    fn notify(&self, msg: M);
+    fn notify_later(&self, msg: M, duration: Duration);
 }
 
 #[async_trait]
@@ -292,6 +295,29 @@ where
                 Err(ActorError::SendError)
             }
         }
+    }
+
+    fn notify(&self, msg: M) {
+        let task = ActorTaskMessage::<A, M>::new(msg, None);
+        match self.tx.send(task.into()) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Unable to send actor task to {} - {}: {:?}",
+                    std::any::type_name::<A>(),
+                    std::any::type_name::<M>(),
+                    e.to_string()
+                );
+            }
+        }
+    }
+
+    fn notify_later(&self, msg: M, delay: Duration) {
+        let addr = self.clone();
+        tokio::task::spawn(async move {
+            tokio::time::sleep(delay).await;
+            addr.notify(msg);
+        });
     }
 }
 
