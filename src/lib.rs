@@ -143,6 +143,14 @@ where
         // Store extra permit for any consumer that is not already waiting.
         self.completed.notify_one();
     }
+
+    pub fn strong_count(&self) -> usize {
+        Arc::strong_count(&self.tx)
+    }
+
+    pub fn weak_count(&self) -> usize {
+        Arc::weak_count(&self.tx)
+    }
 }
 
 pub struct WeakAddr<A>
