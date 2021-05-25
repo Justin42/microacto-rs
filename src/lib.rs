@@ -104,7 +104,6 @@ pub struct Envelope<A> {
 #[derive(Debug)]
 pub struct Addr<A: Actor + 'static> {
     tx: Arc<tokio::sync::mpsc::UnboundedSender<Envelope<A>>>,
-    completed: Arc<Notify>,
 }
 
 impl<A> Clone for Addr<A>
@@ -114,7 +113,6 @@ where
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
-            completed: self.completed.clone(),
         }
     }
 }
@@ -126,22 +124,7 @@ where
     pub fn downgrade(self) -> WeakAddr<A> {
         WeakAddr {
             tx: Arc::downgrade(&self.tx),
-            stopped: Arc::downgrade(&self.completed),
         }
-    }
-
-    pub async fn complete(self) {
-        let weak = self.downgrade();
-        match weak.stopped.upgrade() {
-            None => {}
-            Some(notify) => notify.notified().await,
-        }
-    }
-
-    fn notify_completed(&self) {
-        self.completed.notify_waiters();
-        // Store extra permit for any consumer that is not already waiting.
-        self.completed.notify_one();
     }
 
     pub fn strong_count(&self) -> usize {
@@ -158,7 +141,6 @@ where
     A: Actor,
 {
     tx: Weak<tokio::sync::mpsc::UnboundedSender<Envelope<A>>>,
-    stopped: Weak<Notify>,
 }
 
 impl<A> WeakAddr<A>
@@ -168,7 +150,6 @@ where
     pub fn upgrade(&self) -> Option<Addr<A>> {
         Some(Addr {
             tx: self.tx.upgrade()?,
-            completed: self.stopped.upgrade()?,
         })
     }
 }
@@ -180,7 +161,6 @@ where
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
-            stopped: self.stopped.clone(),
         }
     }
 }
@@ -190,10 +170,7 @@ where
     A: Actor + 'static,
 {
     fn from(tx: tokio::sync::mpsc::UnboundedSender<Envelope<A>>) -> Self {
-        Self {
-            tx: Arc::new(tx),
-            completed: Arc::new(Notify::new()),
-        }
+        Self { tx: Arc::new(tx) }
     }
 }
 
@@ -342,11 +319,10 @@ pub trait Actor: Send + Sized + Sync + 'static {
         let ctx = ActorContext::build(&addr);
 
         {
-            let addr = addr.clone();
             tokio::task::spawn(async move {
                 let actor = actor;
                 // TODO Sending a message to the ctx in on_start implementation will probably cause a deadlock.
-                match actor.on_start(ctx).await.err() {
+                match actor.on_start(&ctx).await.err() {
                     None => {
                         while let Some(mut msg) = rx.recv().await {
                             msg.inner.execute(&actor).await
@@ -355,6 +331,16 @@ pub trait Actor: Send + Sized + Sync + 'static {
                             "Actor '{}' shutting down. All senders dropped.",
                             std::any::type_name::<A>()
                         );
+                        match actor.on_stop(&ctx).await.err() {
+                            None => {}
+                            Some(e) => {
+                                error!(
+                                    "Error shutting down actor '{}': {:?}",
+                                    std::any::type_name::<A>(),
+                                    e
+                                );
+                            }
+                        }
                     }
                     Some(e) => {
                         error!(
@@ -364,17 +350,20 @@ pub trait Actor: Send + Sized + Sync + 'static {
                         );
                     }
                 }
-                addr.notify_completed();
             });
         }
         addr
     }
 
-    async fn on_start(&self, _ctx: ActorContext<Self>) -> Result<(), ActorError> {
+    async fn on_start(&self, _ctx: &ActorContext<Self>) -> Result<(), ActorError> {
         // TODO Don't do this. Message handling has not been started.
         // Spawn a new task or something instead (it wont complete until after handling starts)
         //ctx.addr.upgrade().unwrap().send(SomeMessage).await??;
 
+        Ok(())
+    }
+
+    async fn on_stop(&self, _ctx: &ActorContext<Self>) -> Result<(), ActorError> {
         Ok(())
     }
 }
