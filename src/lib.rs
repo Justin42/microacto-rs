@@ -3,7 +3,6 @@ use log::{error, info, trace, warn};
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::{Arc, Weak};
-use tokio::sync::Notify;
 use tokio::time::Duration;
 
 pub trait Context: Send + Sync {}
